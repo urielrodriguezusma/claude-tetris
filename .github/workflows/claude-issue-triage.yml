@@ -1,0 +1,55 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Issue Triage
+        id: claude-triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Analiza el issue #${{ github.event.issue.number }} de este repositorio (título y cuerpo).
+
+            1. Labels: elige y aplica solo labels que ya existan en el repo (consulta con
+               `gh label list`; por ejemplo bug, enhancement, documentation, question,
+               duplicate, invalid, wontfix, help wanted, good first issue, accessibility).
+               No crees labels nuevos. Aplícalos con
+               `gh issue edit ${{ github.event.issue.number }} --add-label "..."`.
+               No quites labels que ya tenga el issue salvo que claramente ya no apliquen.
+
+            2. Diagnóstico: revisa el código de este repositorio (ver CLAUDE.md para la
+               arquitectura de game.js: modelo del tablero, piezas, colisiones, wall kicks,
+               game loop, scoring, renderizado, input) y escribe un diagnóstico general que
+               incluya:
+               - Resumen del problema o solicitud.
+               - Causa probable (si es un bug) o alcance (si es una feature), referenciando
+                 funciones/archivos concretos del repo cuando aplique.
+               - Archivos y funciones probablemente involucrados.
+               - Enfoque de solución sugerido, a alto nivel, SIN implementarlo todavía.
+
+               Empieza el comentario con el marcador exacto `<!-- claude-diagnosis -->` en
+               la primera línea (no visible en el render pero debe estar en el cuerpo).
+
+               Antes de publicar, revisa los comentarios existentes del issue con
+               `gh issue view ${{ github.event.issue.number }} --comments` buscando uno que
+               empiece con `<!-- claude-diagnosis -->`. Si existe, actualízalo con
+               `gh api` (PATCH a `/repos/${{ github.repository }}/issues/comments/<id>`)
+               con el diagnóstico nuevo en vez de crear un comentario adicional. Si no
+               existe, créalo con `gh issue comment ${{ github.event.issue.number }} --body "..."`.
+          claude_args: '--allowedTools "Bash(gh label list),Bash(gh issue edit *),Bash(gh issue view *),Bash(gh issue comment *),Bash(gh api *)"'
