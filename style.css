@@ -125,6 +125,35 @@ body {
   transition: background 0.2s, border-color 0.2s;
 }
 
+#skin-select {
+  background: var(--kbd-bg);
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  width: fit-content;
+}
+
+/* ---- Skins ---- */
+body.skin-neon {
+  --board-bg: #05050a;
+  --grid-line: #16162a;
+}
+
+body.skin-neon #board {
+  box-shadow: 0 0 40px rgba(122, 162, 247, 0.25);
+}
+
+body.skin-pastel {
+  --board-bg: #201f2b;
+}
+
+body.skin-pastel.light-theme {
+  --board-bg: #faf7ff;
+}
+
 /* ---- Theme switch ---- */
 .theme-switch {
   display: inline-flex;

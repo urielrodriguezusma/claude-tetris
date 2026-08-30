@@ -28,8 +28,40 @@ const PIECES = [
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
 
+// Visual skins. `colors` is indexed 1..7 like COLORS; index 0 is unused.
+const SKINS = {
+  retro: {
+    colors: COLORS,
+    radius: 0, glow: 0, texture: false,
+    highlight: 'rgba(255,255,255,0.12)',
+  },
+  neon: {
+    colors: [null, '#18e0ff', '#ffe14d', '#e05bff', '#5bff9e', '#ff5b6e', '#5b9dff', '#ffab4d'],
+    radius: 0, glow: 12, texture: false,
+    highlight: 'rgba(255,255,255,0.25)',
+  },
+  pastel: {
+    colors: [null, '#a7e8e0', '#f5e1a4', '#d9b8e8', '#bfe3c0', '#f2b8b8', '#bcd0f0', '#f5cfa0'],
+    radius: 6, glow: 0, texture: false,
+    highlight: 'rgba(255,255,255,0.35)',
+  },
+  pixel: {
+    colors: COLORS,
+    radius: 0, glow: 0, texture: true,
+    highlight: 'rgba(255,255,255,0.12)',
+  },
+};
+
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
+// Offscreen layer for the static grid + locked blocks, repainted only when
+// the board, skin or theme changes — keeps the per-frame draw cheap even with
+// the neon skin's per-block shadowBlur.
+const boardLayer = document.createElement('canvas');
+boardLayer.width = COLS * BLOCK;
+boardLayer.height = ROWS * BLOCK;
+const boardLayerCtx = boardLayer.getContext('2d');
+let boardLayerDirty = true;
 const nextCanvas = document.getElementById('next-canvas');
 const nextCtx = nextCanvas.getContext('2d');
 const scoreEl = document.getElementById('score');
@@ -56,6 +88,7 @@ const resetRecordsBtn = document.getElementById('reset-records-btn');
 const nameEntry = document.getElementById('name-entry');
 const nameInput = document.getElementById('name-input');
 const saveScoreBtn = document.getElementById('save-score-btn');
+const skinSelect = document.getElementById('skin-select');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 // Level the current game was started at; frozen by init() so changing the
@@ -67,8 +100,16 @@ let running = false;
 const THEME_KEY = 'tetris-theme';
 const START_LEVEL_KEY = 'tetris-start-level';
 const HIGHSCORES_KEY = 'tetris-highscores';
+const SKIN_KEY = 'tetris-skin';
 const MAX_START_LEVEL = 15;
 const MAX_SCORES = 5;
+
+function hasSkin(name) {
+  return Object.prototype.hasOwnProperty.call(SKINS, name);
+}
+
+let skinName = hasSkin(localStorage.getItem(SKIN_KEY)) ? localStorage.getItem(SKIN_KEY) : 'retro';
+let skin = SKINS[skinName];
 
 let startLevel = clampStartLevel(parseInt(localStorage.getItem(START_LEVEL_KEY), 10) || 1);
 
@@ -174,6 +215,7 @@ function addHighscore(name) {
 function applyTheme(theme) {
   document.body.classList.toggle('light-theme', theme === 'light');
   themeToggle.checked = theme === 'light';
+  boardLayerDirty = true;
 }
 
 function initTheme() {
@@ -188,6 +230,25 @@ themeToggle.addEventListener('change', () => {
 });
 
 initTheme();
+
+function applySkin(name) {
+  if (!hasSkin(name)) name = 'retro';
+  skinName = name;
+  skin = SKINS[name];
+  skinSelect.value = name;
+  document.body.classList.remove('skin-retro', 'skin-neon', 'skin-pastel', 'skin-pixel');
+  document.body.classList.add('skin-' + name);
+  boardLayerDirty = true;
+  if (board && current) draw();
+  if (next) drawNext();
+}
+
+skinSelect.addEventListener('change', () => {
+  applySkin(skinSelect.value);
+  localStorage.setItem(SKIN_KEY, skinName);
+});
+
+applySkin(skinName);
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -289,6 +350,7 @@ function softDrop() {
 function lockPiece() {
   merge();
   clearLines();
+  boardLayerDirty = true;
   spawn();
 }
 
@@ -307,43 +369,82 @@ function updateHUD() {
   levelEl.textContent = level;
 }
 
-function drawBlock(context, x, y, colorIndex, size, alpha) {
-  if (!colorIndex) return;
-  const color = COLORS[colorIndex];
-  context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
-  context.globalAlpha = 1;
+function roundRectPath(context, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  context.beginPath();
+  context.moveTo(x + rr, y);
+  context.arcTo(x + w, y, x + w, y + h, rr);
+  context.arcTo(x + w, y + h, x, y + h, rr);
+  context.arcTo(x, y + h, x, y, rr);
+  context.arcTo(x, y, x + w, y, rr);
+  context.closePath();
 }
 
-function drawGrid() {
-  ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-line').trim();
-  ctx.lineWidth = 0.5;
+function drawBlock(context, x, y, colorIndex, size, alpha) {
+  if (!colorIndex) return;
+  const color = skin.colors[colorIndex];
+  const px = x * size + 1;
+  const py = y * size + 1;
+  const s = size - 2;
+  context.save();
+  context.globalAlpha = alpha ?? 1;
+  if (skin.glow) {
+    context.shadowColor = color;
+    context.shadowBlur = skin.glow;
+  }
+  context.fillStyle = color;
+  if (skin.radius) {
+    roundRectPath(context, px, py, s, s, skin.radius);
+    context.fill();
+  } else {
+    context.fillRect(px, py, s, s);
+  }
+  context.shadowBlur = 0;
+  // highlight
+  context.fillStyle = skin.highlight;
+  context.fillRect(px, py, s, 4);
+  // pixel-art texture
+  if (skin.texture) {
+    context.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let i = 0; i < s; i += 6) {
+      for (let j = 0; j < s; j += 6) {
+        if ((i + j) % 12 === 0) context.fillRect(px + i, py + j, 3, 3);
+      }
+    }
+  }
+  context.restore();
+}
+
+function drawGrid(context) {
+  context.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-line').trim();
+  context.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
-    ctx.beginPath();
-    ctx.moveTo(c * BLOCK, 0);
-    ctx.lineTo(c * BLOCK, ROWS * BLOCK);
-    ctx.stroke();
+    context.beginPath();
+    context.moveTo(c * BLOCK, 0);
+    context.lineTo(c * BLOCK, ROWS * BLOCK);
+    context.stroke();
   }
   for (let r = 1; r < ROWS; r++) {
-    ctx.beginPath();
-    ctx.moveTo(0, r * BLOCK);
-    ctx.lineTo(COLS * BLOCK, r * BLOCK);
-    ctx.stroke();
+    context.beginPath();
+    context.moveTo(0, r * BLOCK);
+    context.lineTo(COLS * BLOCK, r * BLOCK);
+    context.stroke();
   }
+}
+
+function renderBoardLayer() {
+  boardLayerCtx.clearRect(0, 0, boardLayer.width, boardLayer.height);
+  drawGrid(boardLayerCtx);
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      drawBlock(boardLayerCtx, c, r, board[r][c], BLOCK);
+  boardLayerDirty = false;
 }
 
 function draw() {
+  if (boardLayerDirty) renderBoardLayer();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawGrid();
-
-  // board
-  for (let r = 0; r < ROWS; r++)
-    for (let c = 0; c < COLS; c++)
-      drawBlock(ctx, c, r, board[r][c], BLOCK);
+  ctx.drawImage(boardLayer, 0, 0);
 
   // ghost
   const gy = ghostY();
@@ -488,6 +589,7 @@ function loop(ts) {
 
 function init() {
   board = createBoard();
+  boardLayerDirty = true;
   score = 0;
   lines = 0;
   combo = 0;
