@@ -54,6 +54,14 @@ const SKINS = {
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
+// Offscreen layer for the static grid + locked blocks, repainted only when
+// the board, skin or theme changes — keeps the per-frame draw cheap even with
+// the neon skin's per-block shadowBlur.
+const boardLayer = document.createElement('canvas');
+boardLayer.width = COLS * BLOCK;
+boardLayer.height = ROWS * BLOCK;
+const boardLayerCtx = boardLayer.getContext('2d');
+let boardLayerDirty = true;
 const nextCanvas = document.getElementById('next-canvas');
 const nextCtx = nextCanvas.getContext('2d');
 const scoreEl = document.getElementById('score');
@@ -96,7 +104,11 @@ const SKIN_KEY = 'tetris-skin';
 const MAX_START_LEVEL = 15;
 const MAX_SCORES = 5;
 
-let skinName = SKINS[localStorage.getItem(SKIN_KEY)] ? localStorage.getItem(SKIN_KEY) : 'retro';
+function hasSkin(name) {
+  return Object.prototype.hasOwnProperty.call(SKINS, name);
+}
+
+let skinName = hasSkin(localStorage.getItem(SKIN_KEY)) ? localStorage.getItem(SKIN_KEY) : 'retro';
 let skin = SKINS[skinName];
 
 let startLevel = clampStartLevel(parseInt(localStorage.getItem(START_LEVEL_KEY), 10) || 1);
@@ -203,6 +215,7 @@ function addHighscore(name) {
 function applyTheme(theme) {
   document.body.classList.toggle('light-theme', theme === 'light');
   themeToggle.checked = theme === 'light';
+  boardLayerDirty = true;
 }
 
 function initTheme() {
@@ -219,12 +232,13 @@ themeToggle.addEventListener('change', () => {
 initTheme();
 
 function applySkin(name) {
-  if (!SKINS[name]) name = 'retro';
+  if (!hasSkin(name)) name = 'retro';
   skinName = name;
   skin = SKINS[name];
   skinSelect.value = name;
   document.body.classList.remove('skin-retro', 'skin-neon', 'skin-pastel', 'skin-pixel');
   document.body.classList.add('skin-' + name);
+  boardLayerDirty = true;
   if (board && current) draw();
   if (next) drawNext();
 }
@@ -336,6 +350,7 @@ function softDrop() {
 function lockPiece() {
   merge();
   clearLines();
+  boardLayerDirty = true;
   spawn();
 }
 
@@ -400,31 +415,36 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   context.restore();
 }
 
-function drawGrid() {
-  ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-line').trim();
-  ctx.lineWidth = 0.5;
+function drawGrid(context) {
+  context.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-line').trim();
+  context.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
-    ctx.beginPath();
-    ctx.moveTo(c * BLOCK, 0);
-    ctx.lineTo(c * BLOCK, ROWS * BLOCK);
-    ctx.stroke();
+    context.beginPath();
+    context.moveTo(c * BLOCK, 0);
+    context.lineTo(c * BLOCK, ROWS * BLOCK);
+    context.stroke();
   }
   for (let r = 1; r < ROWS; r++) {
-    ctx.beginPath();
-    ctx.moveTo(0, r * BLOCK);
-    ctx.lineTo(COLS * BLOCK, r * BLOCK);
-    ctx.stroke();
+    context.beginPath();
+    context.moveTo(0, r * BLOCK);
+    context.lineTo(COLS * BLOCK, r * BLOCK);
+    context.stroke();
   }
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawGrid();
-
-  // board
+function renderBoardLayer() {
+  boardLayerCtx.clearRect(0, 0, boardLayer.width, boardLayer.height);
+  drawGrid(boardLayerCtx);
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
-      drawBlock(ctx, c, r, board[r][c], BLOCK);
+      drawBlock(boardLayerCtx, c, r, board[r][c], BLOCK);
+  boardLayerDirty = false;
+}
+
+function draw() {
+  if (boardLayerDirty) renderBoardLayer();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(boardLayer, 0, 0);
 
   // ghost
   const gy = ghostY();
@@ -569,6 +589,7 @@ function loop(ts) {
 
 function init() {
   board = createBoard();
+  boardLayerDirty = true;
   score = 0;
   lines = 0;
   combo = 0;
