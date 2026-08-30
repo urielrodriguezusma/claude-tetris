@@ -331,3 +331,85 @@ kbd {
   align-items: center;
   gap: 4px;
 }
+
+.menu-btn-ghost {
+  background: transparent;
+  color: var(--controls-color);
+  border: 1px solid var(--kbd-border);
+}
+
+.menu-btn-ghost:hover {
+  background: var(--kbd-bg);
+}
+
+/* ---- Tabla de records ---- */
+.records {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.records table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.records th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--label-color);
+  padding: 2px 4px;
+}
+
+.records td {
+  padding: 3px 4px;
+  border-top: 1px solid var(--board-border);
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.records td.num {
+  text-align: right;
+}
+
+.records tr.is-current td {
+  color: var(--value-color);
+  font-weight: 700;
+}
+
+.records .records-empty {
+  color: var(--controls-color);
+  font-size: 11px;
+  padding: 4px;
+}
+
+.records .records-stats {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-family: 'Courier New', Courier, monospace;
+  color: var(--controls-color);
+  font-size: 11px;
+}
+
+.name-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.name-entry.hidden {
+  display: none;
+}
+
+#name-input {
+  background: var(--kbd-bg);
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  text-transform: uppercase;
+}
