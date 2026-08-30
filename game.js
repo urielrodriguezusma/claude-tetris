@@ -376,6 +376,10 @@ function endGame() {
   overlayTitle.textContent = 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
 
+  // Persist combo/lines stats up front so a great run isn't lost if the
+  // player closes the tab at the name-entry prompt.
+  commitGameStats();
+
   const isTop = qualifiesForTop(score);
   if (isTop) {
     nameEntry.classList.remove('hidden');
@@ -384,7 +388,6 @@ function endGame() {
     renderHighscores(overlayRecordsEl, -1);
     nameInput.focus();
   } else {
-    commitGameStats();
     nameEntry.classList.add('hidden');
     restartBtn.classList.remove('hidden');
     renderHighscores(overlayRecordsEl, -1);
