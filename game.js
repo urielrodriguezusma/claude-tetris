@@ -50,6 +50,9 @@ const controlsBackBtn = document.getElementById('controls-back-btn');
 const startLevelSelect = document.getElementById('start-level-select');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+// Level the current game was started at; frozen by init() so changing the
+// "Nivel inicial" selector mid-game only affects the next game, not this one.
+let gameStartLevel = 1;
 
 const THEME_KEY = 'tetris-theme';
 const START_LEVEL_KEY = 'tetris-start-level';
@@ -63,7 +66,7 @@ function clampStartLevel(n) {
 }
 
 function levelForLines(n) {
-  return Math.max(startLevel, Math.floor(n / 10) + 1);
+  return Math.max(gameStartLevel, Math.floor(n / 10) + 1);
 }
 
 function dropIntervalForLevel(lvl) {
@@ -345,6 +348,7 @@ function init() {
   board = createBoard();
   score = 0;
   lines = 0;
+  gameStartLevel = startLevel;
   level = levelForLines(0);
   paused = false;
   gameOver = false;
