@@ -48,15 +48,27 @@ const pauseRestartBtn = document.getElementById('pause-restart-btn');
 const showControlsBtn = document.getElementById('show-controls-btn');
 const controlsBackBtn = document.getElementById('controls-back-btn');
 const startLevelSelect = document.getElementById('start-level-select');
+const startScreen = document.getElementById('start-screen');
+const startRecordsEl = document.getElementById('start-records');
+const overlayRecordsEl = document.getElementById('overlay-records');
+const playBtn = document.getElementById('play-btn');
+const resetRecordsBtn = document.getElementById('reset-records-btn');
+const nameEntry = document.getElementById('name-entry');
+const nameInput = document.getElementById('name-input');
+const saveScoreBtn = document.getElementById('save-score-btn');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 // Level the current game was started at; frozen by init() so changing the
 // "Nivel inicial" selector mid-game only affects the next game, not this one.
 let gameStartLevel = 1;
+let combo, maxCombo;
+let running = false;
 
 const THEME_KEY = 'tetris-theme';
 const START_LEVEL_KEY = 'tetris-start-level';
+const HIGHSCORES_KEY = 'tetris-highscores';
 const MAX_START_LEVEL = 15;
+const MAX_SCORES = 5;
 
 let startLevel = clampStartLevel(parseInt(localStorage.getItem(START_LEVEL_KEY), 10) || 1);
 
@@ -86,6 +98,78 @@ startLevelSelect.addEventListener('change', () => {
   startLevelSelect.value = String(startLevel);
   localStorage.setItem(START_LEVEL_KEY, String(startLevel));
 });
+
+/* ---- Records locales ---- */
+function loadHighscores() {
+  let data;
+  try {
+    data = JSON.parse(localStorage.getItem(HIGHSCORES_KEY));
+  } catch (e) {
+    data = null;
+  }
+  if (!data || typeof data !== 'object') data = {};
+  const scores = Array.isArray(data.scores) ? data.scores : [];
+  return {
+    scores: scores
+      .filter(s => s && typeof s.name === 'string' && Number.isFinite(s.score))
+      .map(s => ({ name: s.name, score: s.score, lines: Number(s.lines) || 0 }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_SCORES),
+    bestCombo: Number(data.bestCombo) || 0,
+    maxLines: Number(data.maxLines) || 0,
+  };
+}
+
+function saveHighscores(data) {
+  localStorage.setItem(HIGHSCORES_KEY, JSON.stringify(data));
+}
+
+function qualifiesForTop(pts) {
+  if (pts <= 0) return false;
+  const { scores } = loadHighscores();
+  return scores.length < MAX_SCORES || pts > scores[scores.length - 1].score;
+}
+
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function renderHighscores(container, highlightIndex) {
+  const { scores, bestCombo, maxLines } = loadHighscores();
+  let html = '';
+  if (scores.length === 0) {
+    html += '<p class="records-empty">Sin records todavía</p>';
+  } else {
+    html += '<table><thead><tr><th>#</th><th>Nombre</th><th class="num">Score</th><th class="num">Líneas</th></tr></thead><tbody>';
+    scores.forEach((s, i) => {
+      const cls = i === highlightIndex ? ' class="is-current"' : '';
+      html += `<tr${cls}><td>${i + 1}</td><td>${escapeHtml(s.name)}</td><td class="num">${s.score.toLocaleString()}</td><td class="num">${s.lines}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+  html += `<div class="records-stats"><span>Mejor combo: ${bestCombo}</span><span>Líneas máx: ${maxLines}</span></div>`;
+  container.innerHTML = html;
+}
+
+function commitGameStats() {
+  const data = loadHighscores();
+  data.bestCombo = Math.max(data.bestCombo, maxCombo);
+  data.maxLines = Math.max(data.maxLines, lines);
+  saveHighscores(data);
+}
+
+function addHighscore(name) {
+  const data = loadHighscores();
+  data.scores.push({ name: name || 'ANON', score, lines });
+  data.scores.sort((a, b) => b.score - a.score);
+  data.scores = data.scores.slice(0, MAX_SCORES);
+  data.bestCombo = Math.max(data.bestCombo, maxCombo);
+  data.maxLines = Math.max(data.maxLines, lines);
+  saveHighscores(data);
+  return data.scores.findIndex(s => s.name === (name || 'ANON') && s.score === score && s.lines === lines);
+}
 
 function applyTheme(theme) {
   document.body.classList.toggle('light-theme', theme === 'light');
@@ -168,10 +252,14 @@ function clearLines() {
   }
   if (cleared) {
     lines += cleared;
+    combo++;
+    maxCombo = Math.max(maxCombo, combo);
     score += (LINE_SCORES[cleared] || 0) * level;
     level = levelForLines(lines);
     dropInterval = dropIntervalForLevel(level);
     updateHUD();
+  } else {
+    combo = 0;
   }
 }
 
@@ -283,14 +371,65 @@ function drawNext() {
 
 function endGame() {
   gameOver = true;
+  running = false;
   cancelAnimationFrame(animId);
   overlayTitle.textContent = 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
+
+  const isTop = qualifiesForTop(score);
+  if (isTop) {
+    nameEntry.classList.remove('hidden');
+    restartBtn.classList.add('hidden');
+    nameInput.value = '';
+    renderHighscores(overlayRecordsEl, -1);
+    nameInput.focus();
+  } else {
+    commitGameStats();
+    nameEntry.classList.add('hidden');
+    restartBtn.classList.remove('hidden');
+    renderHighscores(overlayRecordsEl, -1);
+  }
   overlay.classList.remove('hidden');
 }
 
+function submitScore() {
+  const name = nameInput.value.trim().toUpperCase().slice(0, 12) || 'ANON';
+  const idx = addHighscore(name);
+  nameEntry.classList.add('hidden');
+  restartBtn.classList.remove('hidden');
+  renderHighscores(overlayRecordsEl, idx);
+  renderHighscores(startRecordsEl, -1);
+}
+
+saveScoreBtn.addEventListener('click', submitScore);
+nameInput.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.code === 'Enter') submitScore();
+});
+
+playBtn.addEventListener('click', () => {
+  startScreen.classList.add('hidden');
+  init();
+});
+
+resetRecordsBtn.addEventListener('click', () => {
+  localStorage.removeItem(HIGHSCORES_KEY);
+  renderHighscores(startRecordsEl, -1);
+});
+
+function showStartScreen() {
+  running = false;
+  gameOver = false;
+  paused = false;
+  cancelAnimationFrame(animId);
+  overlay.classList.add('hidden');
+  pauseMenu.classList.add('hidden');
+  renderHighscores(startRecordsEl, -1);
+  startScreen.classList.remove('hidden');
+}
+
 function openPauseMenu() {
-  if (gameOver || paused) return;
+  if (gameOver || paused || !running) return;
   paused = true;
   cancelAnimationFrame(animId);
   pauseControlsView.classList.add('hidden');
@@ -348,10 +487,13 @@ function init() {
   board = createBoard();
   score = 0;
   lines = 0;
+  combo = 0;
+  maxCombo = 0;
   gameStartLevel = startLevel;
   level = levelForLines(0);
   paused = false;
   gameOver = false;
+  running = true;
   dropInterval = dropIntervalForLevel(level);
   dropAccum = 0;
   lastTime = performance.now();
@@ -360,11 +502,15 @@ function init() {
   updateHUD();
   overlay.classList.add('hidden');
   pauseMenu.classList.add('hidden');
+  startScreen.classList.add('hidden');
+  nameEntry.classList.add('hidden');
+  restartBtn.classList.remove('hidden');
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
+  if (!running) return;
   if (e.code === 'KeyP' || e.code === 'Escape') { togglePause(); return; }
   if (paused || gameOver) return;
   switch (e.code) {
@@ -391,4 +537,4 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
-init();
+showStartScreen();
